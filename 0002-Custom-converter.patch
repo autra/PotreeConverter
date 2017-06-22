@@ -1,0 +1,340 @@
+From 42c353a3b385d98bd7ef90f0fca5646807c686e9 Mon Sep 17 00:00:00 2001
+From: Pierre-Eric Pelloux-Prayer <pierre-eric.pelloux-prayer@oslandia.com>
+Date: Mon, 22 May 2017 15:04:12 +0200
+Subject: [PATCH] Custom converter
+
+---
+ PotreeConverter/include/BINPointReader.hpp |   6 ++
+ PotreeConverter/include/BINPointWriter.hpp |  72 +++++++++++++-
+ PotreeConverter/src/BINPointReader.cpp     | 155 ++++++++++-------------------
+ 3 files changed, 127 insertions(+), 106 deletions(-)
+
+diff --git a/PotreeConverter/include/BINPointReader.hpp b/PotreeConverter/include/BINPointReader.hpp
+index d9d9db5..a77bd17 100644
+--- a/PotreeConverter/include/BINPointReader.hpp
++++ b/PotreeConverter/include/BINPointReader.hpp
+@@ -31,6 +31,12 @@ private:
+ 	PointAttributes attributes;
+ 	Point point;
+ 
++	int numPts;
++	int index;
++	float bbox[6];
++	std::vector<float> positions;
++	std::vector<unsigned char> colors;
++
+ public:
+ 
+ 	BINPointReader(string path, AABB aabb, double scale, PointAttributes pointAttributes);
+diff --git a/PotreeConverter/include/BINPointWriter.hpp b/PotreeConverter/include/BINPointWriter.hpp
+index 96abb10..61452c4 100644
+--- a/PotreeConverter/include/BINPointWriter.hpp
++++ b/PotreeConverter/include/BINPointWriter.hpp
+@@ -30,6 +30,13 @@ public:
+ 	AABB aabb;
+ 	double scale;
+ 
++	std::vector<float> positions;
++	std::vector<unsigned char> colors;
++
++	struct {
++		float x, y, z;
++	} _min, _max;
++
+ 	BINPointWriter(string file, AABB aabb, double scale, PointAttributes pointAttributes) {
+ 		this->file = file;
+ 		this->aabb = aabb;
+@@ -39,6 +46,8 @@ public:
+ 		attributes = pointAttributes;
+ 
+ 		writer = new ofstream(file, ios::out | ios::binary);
++
++
+ 	}
+ 
+ 	BINPointWriter(string file, PointAttributes attributes) {
+@@ -53,11 +62,64 @@ public:
+ 		close();
+ 	}
+ 
++
+ 	void write(const Point &point){
+ 		for(int i = 0; i < attributes.size(); i++){
+ 			PointAttribute attribute = attributes[i];
+ 			if(attribute == PointAttribute::POSITION_CARTESIAN){
+ 				//float pos[3] = {(float) point.x,(float)  point.y,(float)  point.z};
++				// int x = (int)((point.position.x - aabb.min.x) / scale);
++				// int y = (int)((point.position.y - aabb.min.y) / scale);
++				// int z = (int)((point.position.z - aabb.min.z) / scale);
++				float x = ((point.position.x - aabb.min.x) / scale);
++				float y = ((point.position.y - aabb.min.y) / scale);
++				float z = ((point.position.z - aabb.min.z) / scale);
++
++				if (positions.size() == 0) {
++					_min.x = x; _min.y = y; _min.z = z;
++					_max.x = x; _max.y = y; _max.z = z;
++				} else {
++					_min.x = std::min(_min.x, x); _min.y = std::min(_min.y, y); _min.z = std::min(_min.z, z);
++					_max.x = std::max(_max.x, x); _max.y = std::max(_max.y, y); _max.z = std::max(_max.z, z);
++				}
++
++				positions.push_back(x);
++				positions.push_back(y);
++				positions.push_back(z);
++
++			}else if(attribute == PointAttribute::COLOR_PACKED){
++				// std::cout << point.intensity << '/' << (int)((unsigned char)(point.intensity)) << '/' << (int)point.color.x << std::endl;
++				// unsigned char intensity = (unsigned char)(point.intensity);// / 255);
++				unsigned char rgba[4] = {point.color.x, point.color.y, point.color.z, 255};
++				colors.push_back(rgba[0]);
++				colors.push_back(rgba[1]);
++				colors.push_back(rgba[2]);
++				colors.push_back(rgba[3]);
++			}else if(attribute == PointAttribute::INTENSITY){
++				// unsigned char i = (unsigned char)(255 * (point.intensity / 65535.0));
++				// colors.push_back(i);
++				// colors.push_back(i);
++				// colors.push_back(i);
++				// colors.push_back(i);
++			}else if(attribute == PointAttribute::CLASSIFICATION){
++				// throw;
++			}else if(attribute == PointAttribute::NORMAL_SPHEREMAPPED){
++				// throw;
++			}else if(attribute == PointAttribute::NORMAL_OCT16){
++				// throw;
++			}else if(attribute == PointAttribute::NORMAL){
++				// throw;
++			}
++		}
++
++		numPoints++;
++	}
++
++	void write2(const Point &point){
++		for(int i = 0; i < attributes.size(); i++){
++			PointAttribute attribute = attributes[i];
++			if(attribute == PointAttribute::POSITION_CARTESIAN){
++				//float pos[3] = {(float) point.x,(float)  point.y,(float)  point.z};
+ 				int x = (int)((point.position.x - aabb.min.x) / scale);
+ 				int y = (int)((point.position.y - aabb.min.y) / scale);
+ 				int z = (int)((point.position.z - aabb.min.z) / scale);
+@@ -91,7 +153,7 @@ public:
+ 				float nx = point.normal.x;
+ 				float ny = point.normal.y;
+ 				float nz = point.normal.z;
+-				
++
+ 				float norm1 = abs(nx) + abs(ny) + abs(nz);
+ 
+ 				nx = nx / norm1;
+@@ -126,6 +188,14 @@ public:
+ 
+ 	void close(){
+ 		if(writer != NULL){
++			std::cout << "WRITING FOR REAL " << file << ':' << numPoints<<  ',' << (positions.size() / 3) << ',' << (colors.size() / 4) << std::endl;
++
++			writer->write((const char*)&_min, 3 * sizeof(int));
++			writer->write((const char*)&_max, 3 * sizeof(int));
++			writer->write((const char*)positions.data(), positions.size() * sizeof(int));
++			writer->write((const char*)colors.data(), colors.size() * sizeof(unsigned char));
++
++
+ 			writer->close();
+ 			delete writer;
+ 			writer = NULL;
+diff --git a/PotreeConverter/src/BINPointReader.cpp b/PotreeConverter/src/BINPointReader.cpp
+index ddc14b4..2cffe62 100644
+--- a/PotreeConverter/src/BINPointReader.cpp
++++ b/PotreeConverter/src/BINPointReader.cpp
+@@ -26,7 +26,7 @@ BINPointReader::BINPointReader(string path,  AABB aabb, double scale, PointAttri
+ 	this->aabb = aabb;
+ 	this->scale = scale;
+ 	this->attributes = pointAttributes;
+-	
++
+ 	if(fs::is_directory(path)){
+ 		// if directory is specified, find all las and laz files inside directory
+ 
+@@ -42,10 +42,15 @@ BINPointReader::BINPointReader(string path,  AABB aabb, double scale, PointAttri
+ 
+ 	currentFile = files.begin();
+ 	reader = new ifstream(*currentFile, ios::in | ios::binary);
++	std::cout << "new " << *currentFile << std::endl;
++	numPts = 0;
++	index = -1;
+ }
+ 
+ BINPointReader::~BINPointReader(){
+-		close();
++	close();
++	numPts = 0;
++	index = -1;
+ }
+ 
+ void BINPointReader::close(){
+@@ -63,119 +68,59 @@ long BINPointReader::numPoints(){
+ }
+ 
+ bool BINPointReader::readNextPoint(){
+-	bool hasPoints = reader->good();
++	if(!numPts || index == numPts){
++		if (numPts) {
++			// try to open next file, if available
++			if (reader) {
++				reader->close();
++				delete reader;
++			}
++			reader = NULL;
++			currentFile++;
++			if(currentFile != files.end()){
++				reader = new ifstream(*currentFile, ios::in | ios::binary);
++			}
++		}
+ 
+-	if(!hasPoints){
+-		// try to open next file, if available
+-		reader->close();
+-		delete reader;
+-		reader = NULL;
+-		currentFile++;
++		if(reader && reader->good()){
++    		reader->seekg (0, reader->end);
++    		int length = reader->tellg();
++    		std::cout << *currentFile << "length " << length << '.' << std::endl;
++    		reader->seekg (0, reader->beg);
++
++    		this->numPts = (length - 6 * 4) / (3 * 4 + 4);
++    		std::cout << "num = '" << numPts << "'" << std::endl;
+ 
+-		if(currentFile != files.end()){
+-			reader = new ifstream(*currentFile, ios::in | ios::binary);
+-			hasPoints = reader->good();
++
++    		reader->read((char*)this->bbox, sizeof(float) * 6);
++    		this->positions.resize(3 * numPts);
++			reader->read((char*)this->positions.data(), numPts * sizeof(float) * 3);
++			this->colors.resize(4 * numPts);
++			reader->read((char*)this->colors.data(), numPts * 4);
++			index = 0;
++		} else {
++			return false;
+ 		}
+ 	}
+ 
+-	if(hasPoints){
++	if(numPts && index < numPts){
+ 		point = Point();
+-		char* buffer = new char[attributes.byteSize];
+-		reader->read(buffer, attributes.byteSize);
+ 
+-		if(!reader->good()){
+-            delete [] buffer;
+-			return false;
+-		}
+-		
+-		int offset = 0;
+-		for(int i = 0; i < attributes.size(); i++){
+-			const PointAttribute attribute = attributes[i];
+-			if(attribute == PointAttribute::POSITION_CARTESIAN){
+-				int* iBuffer = reinterpret_cast<int*>(buffer+offset);
+-				point.position.x = (iBuffer[0] * scale) + aabb.min.x;
+-				point.position.y = (iBuffer[1] * scale) + aabb.min.y;
+-				point.position.z = (iBuffer[2] * scale) + aabb.min.z;
+-			}else if(attribute == PointAttribute::COLOR_PACKED){
+-				unsigned char* ucBuffer = reinterpret_cast<unsigned char*>(buffer+offset);
+-				point.color.x = ucBuffer[0];
+-				point.color.y = ucBuffer[1];
+-				point.color.z = ucBuffer[2];
+-			}else if(attribute == PointAttribute::INTENSITY){
+-				unsigned short* usBuffer = reinterpret_cast<unsigned short*>(buffer+offset);
+-				point.intensity = usBuffer[0];
+-			}else if(attribute == PointAttribute::CLASSIFICATION){
+-				unsigned char* ucBuffer = reinterpret_cast<unsigned char*>(buffer+offset);
+-				point.classification = ucBuffer[0];
+-			}else if(attribute == PointAttribute::NORMAL_SPHEREMAPPED){
+-				// see http://aras-p.info/texts/CompactNormalStorage.html
+-				unsigned char* ucBuffer = reinterpret_cast<unsigned char*>(buffer+offset);
+-				unsigned char bx = ucBuffer[0];
+-				unsigned char by = ucBuffer[1];
+-
+- 				float ex = (float)bx / 255.0f;
+-				float ey = (float)by / 255.0f;
+-
+-				float nx = ex * 2 - 1;
+-				float ny = ey * 2 - 1;
+-				float nz = 1;
+-				float nw = -1;
+-
+-				float l = (nx * (-nx) + ny * (-ny) + nz * (-nw));
+-				nz = l;
+-				nx = nx * sqrt(l);
+-				ny = ny * sqrt(l);
+-
+-				nx = nx * 2;
+-				ny = ny * 2;
+-				nz = nz * 2 -1;
+-
+-				point.normal.x = nx;
+-				point.normal.y = ny;
+-				point.normal.z = nz;
+-
+-			}else if(attribute == PointAttribute::NORMAL_OCT16){
+-				unsigned char* ucBuffer = reinterpret_cast<unsigned char*>(buffer+offset);
+-				unsigned char bx = ucBuffer[0];
+-				unsigned char by = ucBuffer[1];
+-
+-				float u = (float)((bx / 255.0) * 2.0 - 1.0);
+-				float v = (float)((by / 255.0) * 2.0 - 1.0);
+-
+-				float x = 0.0f;
+-				float y = 0.0f;
+-				float z = 1.0f - abs(u) - abs(v);
+-
+-				if(z >= 0){
+-					x = u;
+-					y = v;
+-				}else{
+-					x = float(-( v / psign(v) - 1.0 ) / psign(u));
+-					y = float(-( u / psign(u) - 1.0 ) / psign(v));
+-				}
+-
+-				float length = sqrt(x*x + y*y + z*z);
+-				x = x / length;
+-				y = y / length;
+-				z = z / length;
+-
+-				point.normal.x = x;
+-				point.normal.y = y;
+-				point.normal.z = z;
+-			}else if(attribute == PointAttribute::NORMAL){
+-				float* fBuffer = reinterpret_cast<float*>(buffer+offset);
+-				point.normal.x = fBuffer[0];
+-				point.normal.y = fBuffer[1];
+-				point.normal.z = fBuffer[2];
+-			}
++		point.position.x = (positions[3 * index] * scale) + aabb.min.x;
++		point.position.y = (positions[3 * index + 1] * scale) + aabb.min.y;
++		point.position.z = (positions[3 * index + 2] * scale) + aabb.min.z;
+ 
+-			offset += attribute.byteSize;
+-		}
+-		
+-		delete [] buffer;
++		point.color.x = colors[4 * index + 0];
++		point.color.y = colors[4 * index + 1];
++		point.color.z = colors[4 * index + 2];
++
++		point.intensity = colors[4 * index];
++
++		index++;
++		return true;
+ 	}
+ 
+-	return hasPoints;
++	return false;
+ }
+ 
+ Point BINPointReader::getPoint(){
+-- 
+2.10.2
+

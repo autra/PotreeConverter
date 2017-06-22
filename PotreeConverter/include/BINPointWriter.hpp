@@ -30,6 +30,13 @@ public:
 	AABB aabb;
 	double scale;
 
+	std::vector<float> positions;
+	std::vector<unsigned char> colors;
+
+	struct {
+		float x, y, z;
+	} _min, _max;
+
 	BINPointWriter(string file, AABB aabb, double scale, PointAttributes pointAttributes) {
 		this->file = file;
 		this->aabb = aabb;
@@ -39,6 +46,8 @@ public:
 		attributes = pointAttributes;
 
 		writer = new ofstream(file, ios::out | ios::binary);
+
+
 	}
 
 	BINPointWriter(string file, PointAttributes attributes) {
@@ -53,7 +62,60 @@ public:
 		close();
 	}
 
+
 	void write(const Point &point){
+		for(int i = 0; i < attributes.size(); i++){
+			PointAttribute attribute = attributes[i];
+			if(attribute == PointAttribute::POSITION_CARTESIAN){
+				//float pos[3] = {(float) point.x,(float)  point.y,(float)  point.z};
+				// int x = (int)((point.position.x - aabb.min.x) / scale);
+				// int y = (int)((point.position.y - aabb.min.y) / scale);
+				// int z = (int)((point.position.z - aabb.min.z) / scale);
+				float x = ((point.position.x - aabb.min.x) / scale);
+				float y = ((point.position.y - aabb.min.y) / scale);
+				float z = ((point.position.z - aabb.min.z) / scale);
+
+				if (positions.size() == 0) {
+					_min.x = x; _min.y = y; _min.z = z;
+					_max.x = x; _max.y = y; _max.z = z;
+				} else {
+					_min.x = std::min(_min.x, x); _min.y = std::min(_min.y, y); _min.z = std::min(_min.z, z);
+					_max.x = std::max(_max.x, x); _max.y = std::max(_max.y, y); _max.z = std::max(_max.z, z);
+				}
+
+				positions.push_back(x);
+				positions.push_back(y);
+				positions.push_back(z);
+
+			}else if(attribute == PointAttribute::COLOR_PACKED){
+				// std::cout << point.intensity << '/' << (int)((unsigned char)(point.intensity)) << '/' << (int)point.color.x << std::endl;
+				// unsigned char intensity = (unsigned char)(point.intensity);// / 255);
+				unsigned char rgba[4] = {point.color.x, point.color.y, point.color.z, 255};
+				colors.push_back(rgba[0]);
+				colors.push_back(rgba[1]);
+				colors.push_back(rgba[2]);
+				colors.push_back(rgba[3]);
+			}else if(attribute == PointAttribute::INTENSITY){
+				// unsigned char i = (unsigned char)(255 * (point.intensity / 65535.0));
+				// colors.push_back(i);
+				// colors.push_back(i);
+				// colors.push_back(i);
+				// colors.push_back(i);
+			}else if(attribute == PointAttribute::CLASSIFICATION){
+				// throw;
+			}else if(attribute == PointAttribute::NORMAL_SPHEREMAPPED){
+				// throw;
+			}else if(attribute == PointAttribute::NORMAL_OCT16){
+				// throw;
+			}else if(attribute == PointAttribute::NORMAL){
+				// throw;
+			}
+		}
+
+		numPoints++;
+	}
+
+	void write2(const Point &point){
 		for(int i = 0; i < attributes.size(); i++){
 			PointAttribute attribute = attributes[i];
 			if(attribute == PointAttribute::POSITION_CARTESIAN){
@@ -91,7 +153,7 @@ public:
 				float nx = point.normal.x;
 				float ny = point.normal.y;
 				float nz = point.normal.z;
-				
+
 				float norm1 = abs(nx) + abs(ny) + abs(nz);
 
 				nx = nx / norm1;
@@ -126,6 +188,14 @@ public:
 
 	void close(){
 		if(writer != NULL){
+			std::cout << "WRITING FOR REAL " << file << ':' << numPoints<<  ',' << (positions.size() / 3) << ',' << (colors.size() / 4) << std::endl;
+
+			writer->write((const char*)&_min, 3 * sizeof(int));
+			writer->write((const char*)&_max, 3 * sizeof(int));
+			writer->write((const char*)positions.data(), positions.size() * sizeof(int));
+			writer->write((const char*)colors.data(), colors.size() * sizeof(unsigned char));
+
+
 			writer->close();
 			delete writer;
 			writer = NULL;

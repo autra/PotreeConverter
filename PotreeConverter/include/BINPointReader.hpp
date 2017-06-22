@@ -31,6 +31,12 @@ private:
 	PointAttributes attributes;
 	Point point;
 
+	int numPts;
+	int index;
+	float bbox[6];
+	std::vector<float> positions;
+	std::vector<unsigned char> colors;
+
 public:
 
 	BINPointReader(string path, AABB aabb, double scale, PointAttributes pointAttributes);
